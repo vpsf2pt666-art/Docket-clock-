@@ -1,0 +1,1117 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docket Clock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,500;0,600;1,500&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a court docket sheet. Caption block on top, trigger events on the left, computed deadline ledger on the right. */
+:root{
+  --bg:#ECEFF3; --surface:#FFFFFF; --sunk:#F5F7FA; --ink:#172033; --muted:#5A6476; --line:#D4DAE3;
+  --accent:#2B4CB3; --accent-ink:#FFFFFF;
+  --late:#B42318; --soon:#9A5B00; --ok:#2F6B4F;
+  --f-display:"Spectral", "Iowan Old Style", Georgia, serif;
+  --f-body:"Public Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --r:6px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0F141C; --surface:#161D28; --sunk:#121821; --ink:#E5E9F0; --muted:#98A3B4; --line:#2A3443;
+  --accent:#8EA4FF; --accent-ink:#0F141C; --late:#FF8A80; --soon:#F0B653; --ok:#7CCBA2; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0F141C; --surface:#161D28; --sunk:#121821; --ink:#E5E9F0; --muted:#98A3B4; --line:#2A3443;
+  --accent:#8EA4FF; --accent-ink:#0F141C; --late:#FF8A80; --soon:#F0B653; --ok:#7CCBA2; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;padding-inline:16px;padding-block:20px 48px}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+h1,h2,h3{margin:0;text-wrap:balance}
+button,input,select,textarea{font:inherit;color:inherit}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.label{font-size:11.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* top bar */
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;justify-content:space-between}
+.brand{display:flex;align-items:baseline;gap:12px}
+.brand h1{font-family:var(--f-display);font-weight:600;font-size:38px;letter-spacing:-.01em;line-height:1.1}
+.brand .today{font-size:12.5px;color:var(--muted)}
+.casepick{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+select,input[type=text],input[type=date],input[type=password],textarea{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;min-width:0}
+textarea{width:100%;resize:vertical}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:8px 14px;font-weight:600;font-size:14px;cursor:pointer}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--muted);padding:6px 8px;font-weight:500}
+.btn.ghost:hover{color:var(--ink)}
+.btn.danger{color:var(--late)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* my cases */
+.cases{display:flex;flex-direction:column;gap:12px}
+.sortbar{display:flex;align-items:center;gap:10px}
+.caselist{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.casecard{text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;cursor:pointer;display:flex;flex-direction:column;gap:8px;min-width:0}
+.casecard:hover{border-color:var(--muted)}
+.casecard[aria-current="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.cc-cap{font-family:var(--f-display);font-weight:600;font-size:16.5px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.cc-no{font-size:12.5px;color:var(--muted)}
+.cc-dates{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;font-size:12.5px}
+.cc-dates dt{color:var(--muted)} .cc-dates dd{margin:0;font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.cc-flags{display:flex;gap:12px;font-size:12px;font-weight:700;flex-wrap:wrap}
+.cc-flags .late{color:var(--late)} .cc-flags .soon{color:var(--soon)} .cc-flags .clear{color:var(--ok)}
+.cc-dates dd.active{color:var(--accent);font-weight:500}
+
+/* caption */
+.caption{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:20px 22px;display:grid;grid-template-columns:1fr auto;gap:16px;align-items:end}
+.caption .court{font-variant:small-caps;letter-spacing:.06em;color:var(--muted);font-size:14px}
+.caption h2{font-family:var(--f-display);font-weight:500;font-size:clamp(22px,3.2vw,30px);line-height:1.2;margin-top:4px}
+.caption h2 em{font-style:italic;font-weight:500}
+.caption .meta{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:8px;font-size:13.5px;color:var(--muted)}
+.pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:1px 9px;font-size:12px;font-weight:600;color:var(--muted)}
+.pill.sample{border-style:dashed}
+.tally{display:flex;gap:18px;flex-wrap:wrap}
+.tally div{display:flex;flex-direction:column;align-items:flex-end}
+.tally b{font-family:var(--f-mono);font-size:22px;font-weight:500;line-height:1.1}
+.tally .late b{color:var(--late)} .tally .soon b{color:var(--soon)}
+@media (max-width:720px){.caption{grid-template-columns:1fr}.tally div{align-items:flex-start}}
+
+/* the hidden attribute must beat display rules like .newcase{display:grid} */
+[hidden]{display:none !important}
+/* new case form */
+.newcase{background:var(--sunk);border:1px dashed var(--line);border-radius:var(--r);padding:16px;display:grid;grid-template-columns:2fr 1fr 1.4fr 1fr auto;gap:10px;align-items:end}
+.newcase label{display:flex;flex-direction:column;gap:4px;min-width:0}
+@media (max-width:860px){.newcase{grid-template-columns:1fr 1fr}}
+
+/* main grid */
+.grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:18px;align-items:start}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+.col{display:flex;flex-direction:column;gap:18px;min-width:0}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.panel-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.panel-head h3{font-family:var(--f-display);font-weight:600;font-size:19px}
+.hint{font-size:13px;color:var(--muted);margin:0}
+
+/* events */
+.addform{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.addform .full{grid-column:1/-1}
+.addform label{display:flex;flex-direction:column;gap:4px;font-size:13px;min-width:0}
+.check{flex-direction:row!important;align-items:center;gap:8px!important}
+.events{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.events li{display:grid;grid-template-columns:92px 1fr auto;gap:10px;padding:10px 0;border-top:1px solid var(--line);align-items:start}
+.events li:first-child{border-top:0}
+.events .d{font-size:13px;color:var(--muted);padding-top:1px}
+.events .t{font-weight:600;font-size:14px}
+.events .n{font-size:13px;color:var(--muted)}
+.tag{font-family:var(--f-mono);font-size:11px;border:1px solid var(--line);border-radius:4px;padding:0 5px;margin-left:6px;color:var(--muted);font-weight:400}
+
+/* AI */
+.ai-out{background:var(--sunk);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;font-size:14.5px;min-height:56px;overflow-wrap:anywhere}
+.ai-out h4{font-family:var(--f-display);font-size:16px;font-weight:600;margin:12px 0 4px}
+.ai-out h4:first-child{margin-top:0}
+.ai-out p{margin:6px 0}
+.ai-out ul{margin:4px 0;padding-left:20px}
+.ai-out .wait{color:var(--muted);font-style:italic}
+.ai-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.found{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.found li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.found .ev{font-size:13px;color:var(--muted);font-style:italic}
+.conf{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.conf.low{color:var(--soon)}
+.unavail{font-size:13px;color:var(--muted);border-left:3px solid var(--line);padding-left:10px;margin:0}
+
+/* ledger */
+.filters{display:flex;gap:6px;flex-wrap:wrap}
+.chipbtn{border:1px solid var(--line);background:transparent;border-radius:999px;padding:3px 11px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer}
+.chipbtn[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.month{font-family:var(--f-display);font-size:15px;font-style:italic;color:var(--muted);padding:12px 0 4px;border-bottom:1px solid var(--line)}
+.month:first-child{padding-top:0}
+.ledger{display:flex;flex-direction:column}
+.row{display:grid;grid-template-columns:24px 78px minmax(0,1fr) auto;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);align-items:start;position:relative}
+.row::before{content:"";position:absolute;left:-18px;top:12px;bottom:12px;width:3px;border-radius:2px;background:transparent}
+.row.late::before{background:var(--late)} .row.soon::before{background:var(--soon)}
+.row input[type=checkbox]{margin-top:3px;width:16px;height:16px;accent-color:var(--accent)}
+.date{line-height:1.2}
+.date .dd{font-size:20px;font-weight:500}
+.date .dw{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.row .ttl{font-weight:600}
+.row .cite{font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.row .why{font-size:12.5px;color:var(--muted);margin-top:2px}
+.row .adj{font-size:12.5px;color:var(--accent);margin-top:2px}
+.status{font-size:12px;font-weight:700;white-space:nowrap;padding:2px 8px;border-radius:999px;border:1px solid currentColor;text-align:center}
+.status.late{color:var(--late)} .status.soon{color:var(--soon)} .status.up{color:var(--muted);border-color:var(--line)} .status.done{color:var(--ok);border-color:transparent}
+.status.floor{color:var(--accent)}
+.status.meet{color:var(--accent-ink);background:var(--accent);border-color:var(--accent)}
+.row.meet::before{background:var(--accent)}
+.gm-head{font-family:var(--f-display);font-weight:600;font-size:15px;margin:6px 0 0}
+.found a{color:var(--accent);font-size:12.5px;font-weight:600}
+.keybox{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.keybox input{flex:1;min-width:0}
+.drop{border:1.5px dashed var(--line);border-radius:var(--r);padding:12px;text-align:center;font-size:13px;color:var(--muted);cursor:pointer}
+.drop.over{border-color:var(--accent);color:var(--accent)}
+.row.isdone .ttl,.row.isdone .dd{text-decoration:line-through;text-decoration-color:var(--muted)}
+.row.isdone{opacity:.62}
+@media (max-width:520px){.row{grid-template-columns:22px 64px minmax(0,1fr)}.row .status{grid-column:3;justify-self:start}.row::before{left:-14px}}
+.empty{color:var(--muted);font-size:14px;padding:18px 0;margin:0}
+
+footer{font-size:12.5px;color:var(--muted);max-width:75ch;line-height:1.55}
+@media (prefers-reduced-motion:no-preference){.row,.found li{animation:in .25s ease both}@keyframes in{from{transform:translateY(3px)}to{transform:none}}}
+</style>
+
+<div class="wrap">
+  <header class="bar">
+    <div class="brand"><h1>Docket Clock</h1><span class="today mono" id="today"></span></div>
+    <button class="btn" id="newCaseBtn" type="button">New case</button>
+  </header>
+
+  <section class="cases" aria-labelledby="mcH">
+    <div class="panel-head">
+      <h3 id="mcH">My cases</h3>
+      <div class="sortbar"><span class="label">Sort</span>
+        <div class="filters" role="group" aria-label="Sort cases">
+          <button class="chipbtn" data-s="alpha" aria-pressed="false" type="button">A–Z</button>
+          <button class="chipbtn" data-s="filed" aria-pressed="false" type="button">Date filed</button>
+          <button class="chipbtn" data-s="last" aria-pressed="false" type="button">Last filing</button>
+        </div>
+      </div>
+    </div>
+    <div class="caselist" id="caseList"></div>
+  </section>
+
+  <form class="newcase" id="newCaseForm" hidden>
+    <label><span class="label">Caption</span><input type="text" id="ncCaption" placeholder="Smith v. Acme Corp." required></label>
+    <label><span class="label">Case no.</span><input type="text" id="ncNumber" placeholder="Index No., e.g. 159876/2026"></label>
+    <label><span class="label">Court</span><input type="text" id="ncCourt" placeholder="Supreme Court, Kings County"></label>
+    <label><span class="label">You represent</span><select id="ncSide"><option value="Plaintiff / class">Plaintiff / class</option><option value="Defendant">Defendant</option></select></label>
+    <div class="ai-row"><button class="btn primary" type="submit">Create</button><button class="btn ghost" type="button" id="ncCancel">Cancel</button></div>
+  </form>
+
+  <section class="caption" aria-label="Case caption">
+    <div>
+      <div class="court" id="capCourt"></div>
+      <h2 id="capTitle"></h2>
+      <div class="meta"><span class="mono" id="capNo"></span><span class="pill" id="capSide"></span><span class="pill" id="capJuris"></span><span class="pill sample" id="capSample" hidden>Sample case</span><button class="btn ghost danger" id="delCase" type="button">Delete case</button></div>
+    </div>
+    <div class="tally" id="tally"></div>
+  </section>
+
+  <div class="grid">
+    <div class="col">
+      <section class="panel" aria-labelledby="evH">
+        <div class="panel-head"><h3 id="evH">Trigger events</h3><span class="label" id="countLabel">Rule 6(a) counting</span><button class="btn" id="addEvBtn" type="button">Add event</button></div>
+        <form class="addform" id="addForm" hidden>
+          <label class="full">Event<select id="evKey"></select></label>
+          <label>Date<input type="date" id="evDate" required></label>
+          <label id="timeWrap" hidden>Time and place<input type="text" id="evTime" placeholder="2:00 PM, Zoom"></label>
+          <label class="full" id="titleWrap" hidden>What is it<input type="text" id="evTitle" placeholder="e.g. Meet-and-confer on document demands"></label>
+          <label class="check" id="mailWrap" hidden><input type="checkbox" id="evMail"> <span id="mailText">Served by mail (+3 days)</span></label>
+          <label class="full">Note (optional)<input type="text" id="evNote" placeholder="e.g. NYSCEF Doc 42"></label>
+          <div class="full ai-row"><button class="btn primary" type="submit">Add event</button><button class="btn ghost" type="button" id="evCancel">Cancel</button></div>
+        </form>
+        <ul class="events" id="events"></ul>
+      </section>
+
+      <section class="panel" aria-labelledby="gmH">
+        <div class="panel-head"><h3 id="gmH">Linked email</h3><span class="label">Gmail · AI</span></div>
+        <p class="hint">Reads your Gmail for NYSCEF filing notices and for correspondence about your cases. Claude matches each filing to a case by index number and pulls out meetings, calls and depositions agreed with opposing counsel, so you can add them to the schedule.</p>
+        <div class="ai-row">
+          <button class="btn primary" id="gmBtn" type="button">Check my email</button>
+          <span class="hint" id="gmStatus" aria-live="polite"></span>
+        </div>
+        <p class="unavail" id="gmUnavail" hidden></p>
+        <div id="gmOut"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="exH">
+        <div class="panel-head"><h3 id="exH">Read a filing</h3><span class="label">AI</span></div>
+        <p class="hint">Drop in a PDF filing or paste an order, notice or docket entry. Claude finds the trigger events and dates so you can add them in one step.</p>
+        <div class="keybox" id="keyBox" hidden>
+          <label for="keyIn">OpenRouter API key</label>
+          <div class="ai-row">
+            <input type="password" id="keyIn" autocomplete="off" spellcheck="false" placeholder="sk-or-…">
+            <button class="btn" id="keySave" type="button">Save key</button>
+            <button class="btn ghost danger" id="keyForget" type="button" hidden>Forget key</button>
+          </div>
+          <p class="hint" id="keyState">Stored only in this browser. AI calls are billed to the key owner's OpenRouter account.</p>
+        </div>
+        <input type="file" id="pdfIn" accept="application/pdf,.pdf" hidden>
+        <label class="drop" id="drop" for="pdfIn">Drop a PDF here or choose a file</label>
+        <textarea id="exText" rows="6" placeholder="Paste text from an order or docket entry…"></textarea>
+        <div class="ai-row">
+          <button class="btn primary" id="exBtn" type="button">Find dates</button>
+          <button class="btn ghost" id="exSample" type="button">Load sample order</button>
+          <button class="btn ghost" id="exStop" type="button" hidden>Stop</button>
+        </div>
+        <p class="unavail" id="exUnavail" hidden></p>
+        <div id="exOut"></div>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="panel" aria-labelledby="dlH">
+        <div class="panel-head"><h3 id="dlH">Deadlines</h3>
+          <div class="filters" role="group" aria-label="Filter deadlines">
+            <button class="chipbtn" data-f="open" aria-pressed="true" type="button">Open</button>
+            <button class="chipbtn" data-f="all" aria-pressed="false" type="button">All</button>
+          </div>
+        </div>
+        <div class="ledger" id="ledger"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="brH">
+        <div class="panel-head"><h3 id="brH">Case briefing</h3><span class="label">AI</span></div>
+        <p class="hint">Claude reviews the open deadlines and tells you what to prioritize this week, which dates cannot be extended, and what to file next.</p>
+        <div class="ai-row">
+          <button class="btn primary" id="brBtn" type="button">Brief me</button>
+          <button class="btn ghost" id="brStop" type="button" hidden>Stop</button>
+        </div>
+        <p class="unavail" id="brUnavail" hidden></p>
+        <div class="ai-out" id="brOut" hidden></div>
+      </section>
+    </div>
+  </div>
+
+  <footer>All cases follow New York's Civil Practice Law and Rules (CPLR), with General Construction Law § 25-a counting and New York public holidays. Class actions proceed under CPLR Article 9. Part rules, preliminary conference orders and stipulations can change these dates. Always confirm against the NYSCEF docket. Cases are saved in this browser only.</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"></script>
+<script>
+(() => {
+"use strict";
+const DAY = 86400000;
+const $ = (id) => document.getElementById(id);
+
+/* ---------- rule book ---------- */
+const EVENTS = {
+  complaint_filed: { label: "Complaint filed", rules: [
+    { t: "Serve summons and complaint", d: 90, c: "Fed. R. Civ. P. 4(m)" } ]},
+  service_completed: { label: "Defendant served with summons", rules: [
+    { t: "Answer or Rule 12 motion due", d: 21, c: "Fed. R. Civ. P. 12(a)(1)(A)(i)" },
+    { t: "Notice of removal (if filed in state court)", d: 30, c: "28 U.S.C. § 1446(b)(1)" } ]},
+  waiver_sent: { label: "Waiver-of-service request sent", rules: [
+    { t: "Answer due if waiver returned", d: 60, c: "Fed. R. Civ. P. 12(a)(1)(A)(ii)" } ]},
+  rule26f_conf: { label: "Rule 26(f) conference held", rules: [
+    { t: "Initial disclosures due", d: 14, c: "Fed. R. Civ. P. 26(a)(1)(C)" },
+    { t: "Written discovery plan due to court", d: 14, c: "Fed. R. Civ. P. 26(f)(2)" } ]},
+  discovery_served: { label: "Interrogatories, document requests or RFAs served", mailable: true, rules: [
+    { t: "Written responses and objections due", d: 30, c: "Fed. R. Civ. P. 33(b)(2), 34(b)(2)(A), 36(a)(3)" } ]},
+  expert_disclosed: { label: "Opposing expert disclosure served", mailable: true, rules: [
+    { t: "Rebuttal expert disclosure due", d: 30, c: "Fed. R. Civ. P. 26(a)(2)(D)(ii)" } ]},
+  class_cert_order: { label: "Class certification order entered", rules: [
+    { t: "Rule 23(f) petition for permission to appeal", d: 14, c: "Fed. R. Civ. P. 23(f)" } ]},
+  settlement_filed: { label: "Proposed class settlement filed", rules: [
+    { t: "Serve CAFA notice on federal and state officials", d: 10, c: "28 U.S.C. § 1715(b)" } ]},
+  cafa_notice: { label: "CAFA notice served on officials", rules: [
+    { t: "Earliest date for final approval order", d: 90, c: "28 U.S.C. § 1715(d)", floor: true } ]},
+  trial_date: { label: "Trial date set", rules: [
+    { t: "Expert disclosures due (absent court order)", d: -90, c: "Fed. R. Civ. P. 26(a)(2)(D)(i)" },
+    { t: "Pretrial disclosures due", d: -30, c: "Fed. R. Civ. P. 26(a)(3)(B)" } ]},
+  judgment_entered: { label: "Judgment entered", rules: [
+    { t: "Motion for attorney's fees", d: 14, c: "Fed. R. Civ. P. 54(d)(2)(B)(i)" },
+    { t: "Renewed motion for judgment as a matter of law", d: 28, c: "Fed. R. Civ. P. 50(b)" },
+    { t: "Motion for new trial or to alter or amend", d: 28, c: "Fed. R. Civ. P. 59(b), (e)" },
+    { t: "Notice of appeal", d: 30, c: "Fed. R. App. P. 4(a)(1)(A)" } ]},
+
+  /* New York State Supreme Court (CPLR) */
+  ny_filed: { j: "ny", label: "Summons and complaint filed", rules: [
+    { t: "Serve summons and complaint", d: 120, c: "CPLR 306-b" } ]},
+  ny_served_personal: { j: "ny", label: "Defendant served by personal delivery", rules: [
+    { t: "Answer or CPLR 3211 motion due", d: 20, c: "CPLR 320(a), 3012(a)" } ]},
+  ny_served_other: { j: "ny", label: "Proof of substituted or nail-and-mail service filed", rules: [
+    { t: "Answer or CPLR 3211 motion due (service complete after 10 days, then 30)", d: 40, c: "CPLR 308(2), (4); 320(a)" } ]},
+  ny_order_noe: { j: "ny", label: "Order served with notice of entry", mailable: true, rules: [
+    { t: "Notice of appeal", d: 30, c: "CPLR 5513(a)" } ]},
+  ny_motion_order: { j: "ny", label: "Order denying CPLR 3211 motion (in whole or part) served with notice of entry", mailable: true, rules: [
+    { t: "Notice of appeal", d: 30, c: "CPLR 5513(a)" },
+    { t: "Answer due on remaining claims", d: 10, c: "CPLR 3211(f)" } ]},
+  ny_discovery_served: { j: "ny", label: "Document demands or interrogatories served", mailable: true, rules: [
+    { t: "Responses due", d: 20, c: "CPLR 3122(a), 3133(a)" } ]},
+  ny_note_of_issue: { j: "ny", label: "Note of issue filed", rules: [
+    { t: "Motion to vacate note of issue", d: 20, c: "22 NYCRR 202.21(e)" },
+    { t: "Summary judgment motion deadline (unless court sets shorter)", d: 120, c: "CPLR 3212(a)" } ]},
+
+  filing: { j: "any", label: "Other docket filing", rules: [] },
+  meeting: { j: "any", label: "Meeting, conference or deposition", sched: true, rules: [] },
+  court_deadline: { j: "any", label: "Court-ordered deadline", sched: "deadline", rules: [] },
+};
+const J = {
+  fed: { name: "Federal · FRCP", count: "Rule 6(a) counting", mailDays: 3, mailCite: "Rule 6(d)", fwd: "Rule 6(a)(1)(C)", back: "Rule 6(a)(5)" },
+  ny: { name: "New York · CPLR", count: "GCL § 25-a counting", mailDays: 5, mailCite: "CPLR 2103(b)(2)", fwd: "Gen. Constr. Law § 25-a", back: "Gen. Constr. Law § 25-a" },
+};
+const jOf = (c) => c.juris || "ny";
+const eventsFor = (j) => Object.entries(EVENTS).filter(([, v]) => (v.j || "fed") === j || v.j === "any");
+
+/* ---------- dates & Rule 6(a) ---------- */
+const parse = (s) => { const [y,m,d] = s.split("-").map(Number); return Date.UTC(y, m-1, d); };
+const iso = (t) => new Date(t).toISOString().slice(0,10);
+const dow = (t) => new Date(t).getUTCDay();
+const WD = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const nice = (t) => { const d = new Date(t); return `${WD[d.getUTCDay()].slice(0,3)}, ${MON[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`; };
+
+const holidays = { fed: new Map(), ny: new Map() }; const builtYears = new Set();
+function nth(y, m, wd, n){ let t = Date.UTC(y,m,1); while (dow(t) !== wd) t += DAY; return t + (n-1)*7*DAY; }
+function last(y, m, wd){ let t = Date.UTC(y,m+1,0); while (dow(t) !== wd) t -= DAY; return t; }
+function observed(t){ const w = dow(t); return w === 6 ? t - DAY : w === 0 ? t + DAY : t; }
+function build(y){
+  if (builtYears.has(y)) return; builtYears.add(y);
+  const add = (t, n) => { holidays.fed.set(iso(t), n); holidays.ny.set(iso(t), n); };
+  const addNY = (t, n) => holidays.ny.set(iso(t), n);
+  addNY(observed(Date.UTC(y,1,12)), "Lincoln's Birthday");
+  addNY(nth(y,10,1,1) + DAY, "Election Day");
+  add(observed(Date.UTC(y,0,1)), "New Year's Day");
+  add(nth(y,0,1,3), "Martin Luther King Jr. Day");
+  add(nth(y,1,1,3), "Washington's Birthday");
+  add(last(y,4,1), "Memorial Day");
+  add(observed(Date.UTC(y,5,19)), "Juneteenth");
+  add(observed(Date.UTC(y,6,4)), "Independence Day");
+  add(nth(y,8,1,1), "Labor Day");
+  add(nth(y,9,1,2), "Columbus Day");
+  add(observed(Date.UTC(y,10,11)), "Veterans Day");
+  add(nth(y,10,4,4), "Thanksgiving Day");
+  add(observed(Date.UTC(y,11,25)), "Christmas Day");
+}
+function closedReason(t, j){
+  const y = new Date(t).getUTCFullYear(); build(y-1); build(y); build(y+1);
+  const h = holidays[j].get(iso(t)); if (h) return h;
+  const w = dow(t); return (w === 0 || w === 6) ? WD[w] : null;
+}
+function roll(t, step, notes, j){
+  const start = t; const why = closedReason(t, j);
+  while (closedReason(t, j)) t += step*DAY;
+  if (t !== start) notes.push(`${nice(start)} is ${WD.includes(why) ? "a " + why : why}, so it moves ${step > 0 ? "forward to the next" : "back to the previous"} court day (${step > 0 ? J[j].fwd : J[j].back}).`);
+  return t;
+}
+function computeDue(trigger, days, mail, j = "fed"){
+  const notes = [];
+  const step = days < 0 ? -1 : 1;
+  let t = roll(parse(trigger) + days*DAY, step, notes, j);
+  if (mail){ t += J[j].mailDays*DAY; notes.push(`Adds ${J[j].mailDays} days for service by mail (${J[j].mailCite}).`); t = roll(t, 1, notes, j); }
+  return { t, notes };
+}
+
+function todayISO(){ const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}-${String(n.getDate()).padStart(2,"0")}`; }
+const TODAY = parse(todayISO());
+
+/* ---------- state ---------- */
+const KEY = "docketclock.v1";
+const uid = () => Math.random().toString(36).slice(2,9);
+function shift(n){ return iso(TODAY + n*DAY); }
+// a court date n days out, moved to the next day the court is open
+function courtDay(n){ let t = TODAY + n*DAY; while (closedReason(t, "ny")) t += DAY; return iso(t); }
+// a past court date n days back, moved to the previous day the court is open
+function courtDayBack(n){ let t = TODAY - n*DAY; while (closedReason(t, "ny")) t -= DAY; return iso(t); }
+function sampleCase(){
+  const c = { id: "sample", sample: true, juris: "ny", caption: "Okafor v. Halvorsen Mobile Systems, Inc.",
+    number: "651877/2026", court: "Supreme Court of the State of New York, New York County (Commercial Division)", side: "Plaintiff / class",
+    events: [
+      { id: uid(), key: "ny_filed", date: shift(-113), doc: "1", note: "Putative statewide class of phone purchasers; GBL § 349 deceptive practices" },
+      { id: uid(), key: "ny_served_other", date: shift(-95), doc: "6", note: "Proof of substituted service on registered agent" },
+      { id: uid(), key: "ny_discovery_served", date: shift(-15), mail: true, note: "Defendant's First Set of Interrogatories" },
+      { id: uid(), key: "ny_order_noe", date: shift(-8), doc: "88", note: "Order granting class certification in part (CPLR 901, 902), Mot. Seq. 004; appealable as of right" },
+      { id: uid(), key: "court_deadline", date: courtDay(38), title: "Complete party depositions", note: "Per preliminary conference order, Doc 34" },
+      { id: uid(), key: "court_deadline", date: courtDay(97), title: "File note of issue", note: "Per preliminary conference order, Doc 34" },
+      { id: uid(), key: "meeting", date: courtDay(6), title: "Compliance conference, Part 48", time: "9:30 AM, 60 Centre St., Room 242", note: "Scheduled by the court" },
+    ], done: {} };
+  c.done[c.events[0].id + ":0"] = true; c.done[c.events[1].id + ":0"] = true;
+  return c;
+}
+function sampleCase2(){
+  const c = { id: "sample2", sample: true, juris: "ny", caption: "In re Northfield Dental Partners Data Security Litigation",
+    number: "61204/2025", court: "Supreme Court of the State of New York, Westchester County", side: "Defendant",
+    events: [
+      { id: uid(), key: "ny_filed", date: shift(-430), doc: "1", note: "Consolidated after 2025 breach; ~210,000 patients" },
+      { id: uid(), key: "ny_served_personal", date: shift(-418), doc: "5", note: "Served on Northfield's general counsel" },
+      { id: uid(), key: "filing", date: shift(-12), doc: "143", note: "Order preliminarily approving $4.2M class settlement (CPLR 908)" },
+      { id: uid(), key: "ny_discovery_served", date: shift(-17), note: "Objector's document demands on attorney-fee allocation" },
+      { id: uid(), key: "court_deadline", date: courtDay(4), title: "Mail and email class notice", note: "Per preliminary approval order, Doc 143 (CPLR 904)" },
+      { id: uid(), key: "court_deadline", date: courtDay(51), title: "Objection and opt-out deadline", note: "Per preliminary approval order, Doc 143" },
+      { id: uid(), key: "meeting", date: courtDay(81), title: "Final approval (fairness) hearing", time: "10:00 AM, 111 Dr. Martin Luther King Jr. Blvd., White Plains", note: "Set by preliminary approval order" },
+    ], done: {} };
+  c.done[c.events[0].id + ":0"] = true; c.done[c.events[1].id + ":0"] = true;
+  return c;
+}
+function sampleCase3(){
+  const c = { id: "sample3", sample: true, juris: "ny", caption: "Delgado v. Riverside Tower Management LLC",
+    number: "158204/2026", court: "Supreme Court of the State of New York, New York County", side: "Plaintiff / class",
+    events: [
+      { id: uid(), key: "ny_filed", date: "2026-08-17", doc: "1", note: "Summons + class action complaint, ~340 tenants (from email)" },
+      { id: uid(), key: "ny_served_personal", date: "2026-08-24", doc: "4", note: "Personal delivery to managing agent, CPLR 311-a; affidavit filed 08/28 (from email)" },
+      { id: uid(), key: "filing", date: "2026-09-14", doc: "9", note: "Notice of motion to dismiss, Mot. Seq. 001, CPLR 3211(a)(1), (7); return date 10/02 (from email)" },
+      { id: uid(), key: "ny_motion_order", date: "2026-10-09", doc: "21", note: "Decision + order granted in part, denied in part; served with notice of entry via NYSCEF (from email)" },
+    ], done: {} };
+  c.done[c.events[0].id + ":0"] = true; // served within 120 days
+  c.done[c.events[1].id + ":0"] = true; // answered by CPLR 3211 motion on 09/14
+  return c;
+}
+function sampleCase4(){
+  const c = { id: "sample4", sample: true, juris: "ny", caption: "Castellano v. Meridian Parcel Logistics Corp.",
+    number: "509317/2025", court: "Supreme Court of the State of New York, Kings County", side: "Defendant",
+    events: [
+      { id: uid(), key: "ny_filed", date: courtDayBack(540), doc: "1", note: "Putative class of ~1,900 delivery drivers; Labor Law § 191 frequency-of-pay claims" },
+      { id: uid(), key: "ny_served_personal", date: courtDayBack(532), doc: "3", note: "Served on Meridian's registered agent" },
+      { id: uid(), key: "filing", date: courtDayBack(210), doc: "77", note: "Order certifying class of New York drivers (CPLR 901, 902), Mot. Seq. 003" },
+      { id: uid(), key: "ny_note_of_issue", date: courtDayBack(12), doc: "142", note: "Plaintiffs' note of issue and certificate of readiness" },
+      { id: uid(), key: "ny_discovery_served", date: courtDayBack(6), mail: true, note: "Plaintiffs' supplemental demands for route-level pay records" },
+      { id: uid(), key: "meeting", date: courtDay(9), title: "Pre-motion conference on summary judgment, Part 9", time: "11:00 AM, 360 Adams St., Brooklyn", note: "Required by Part rules before any summary judgment motion" },
+    ], done: {} };
+  c.done[c.events[0].id + ":0"] = true; c.done[c.events[1].id + ":0"] = true;
+  return c;
+}
+let state;
+function load(){
+  let s = null;
+  try { const raw = localStorage.getItem(KEY); if (raw){ const p = JSON.parse(raw); if (p && Array.isArray(p.cases) && p.cases.length) s = p; } } catch(e){}
+  if (!s) s = { cases: [], current: "sample3" };
+  if ((s.samplesV || 0) < 4){
+    // Every case is a New York case now: refresh the three sample cases and move the user's own cases to CPLR rules
+    const fresh = { sample: sampleCase(), sample2: sampleCase2(), sample3: sampleCase3() };
+    s.cases = s.cases.map(c => fresh[c.id] || c);
+    for (const id of Object.keys(fresh)) if (!s.cases.some(c => c.id === id)) s.cases.push(fresh[id]);
+    s.cases.forEach(c => { c.juris = "ny"; });
+    s.samplesV = 4;
+    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch(e){}
+  }
+  if (s.samplesV < 5){
+    // add the fourth sample case without resetting edits to the other three
+    if (!s.cases.some(c => c.id === "sample4")) s.cases.push(sampleCase4());
+    s.samplesV = 5;
+    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch(e){}
+  }
+  return s;
+}
+function save(){ try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){} }
+state = load();
+const cur = () => state.cases.find(c => c.id === state.current) || state.cases[0];
+let filter = "open";
+
+/* ---------- deadlines ---------- */
+function deadlines(c){
+  const out = [];
+  for (const ev of c.events){
+    const def = EVENTS[ev.key]; if (!def) continue;
+    if (def.sched === "deadline"){
+      const t = parse(ev.date); const left = Math.round((t - TODAY)/DAY);
+      const id = ev.id + ":d"; const done = !!c.done[id];
+      out.push({ id, t, left, done, ordered: true, status: done ? "done" : left < 0 ? "late" : left <= 7 ? "soon" : "up", title: ev.title || def.label,
+        cite: "Set by court order", from: def.label, fromDate: ev.date, notes: [], src: ev.note || "" });
+      continue;
+    }
+    if (def.sched){
+      const t = parse(ev.date); const left = Math.round((t - TODAY)/DAY);
+      const id = ev.id + ":m"; const done = !!c.done[id] || left < 0;
+      out.push({ id, t, left, done, meeting: true, status: done ? "done" : "meet", title: ev.title || def.label,
+        cite: [ev.time, ev.with].filter(Boolean).join(" · "), from: def.label, fromDate: ev.date, notes: [], src: ev.note || "" });
+      continue;
+    }
+    def.rules.forEach((r, i) => {
+      const { t, notes } = computeDue(ev.date, r.d, ev.mail && def.mailable, jOf(c));
+      const id = ev.id + ":" + i; const done = !!c.done[id];
+      const left = Math.round((t - TODAY)/DAY);
+      let status = done ? "done" : r.floor ? "floor" : left < 0 ? "late" : left <= 7 ? "soon" : "up";
+      out.push({ id, t, left, done, status, title: r.t, cite: r.c, floor: !!r.floor, from: def.label, fromDate: ev.date, notes, mail: !!(ev.mail && def.mailable) });
+    });
+  }
+  return out.sort((a,b) => a.t - b.t);
+}
+function statusText(d){
+  if (d.meeting) return d.left < 0 ? "Held" : d.left === 0 ? "Today" : d.left === 1 ? "Tomorrow" : `Meeting · ${d.left}d`;
+  if (d.done) return "Done";
+  if (d.floor) return d.left <= 0 ? "Now permitted" : `Not before · ${d.left}d`;
+  if (d.left < 0) return `${-d.left}d overdue`;
+  if (d.left === 0) return "Due today";
+  if (d.left === 1) return "Tomorrow";
+  return `${d.left} days`;
+}
+
+/* ---------- render ---------- */
+function el(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+const filedDate = (c) => c.events.filter(e => e.key === "ny_filed" || e.key === "complaint_filed").map(e => e.date).sort()[0] || null;
+const lastFiling = (c) => c.events.map(e => e.date).filter(d => parse(d) <= TODAY).sort().pop() || null;
+const alphaKey = (c) => c.caption.replace(/^in re:?\s+/i, "").toLowerCase();
+const short = (s) => s ? nice(parse(s)).replace(/^\w+, /, "") : "—";
+function renderCases(){
+  const sort = state.sort || "last";
+  document.querySelectorAll("[data-s]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.s === sort)));
+  const byDesc = (f) => (a, b) => (f(b) || "").localeCompare(f(a) || "") || alphaKey(a).localeCompare(alphaKey(b));
+  const list = [...state.cases].sort(sort === "alpha" ? (a, b) => alphaKey(a).localeCompare(alphaKey(b)) : sort === "filed" ? byDesc(filedDate) : byDesc(lastFiling));
+  const box = $("caseList"); box.textContent = "";
+  for (const c of list){
+    const b = el("button", "casecard"); b.type = "button";
+    b.setAttribute("aria-current", String(c.id === cur().id));
+    b.append(el("div", "cc-cap", c.caption));
+    b.append(el("div", "cc-no mono", [c.number && "No. " + c.number, c.side].filter(Boolean).join(" · ")));
+    const dl = el("dl", "cc-dates"); dl.style.margin = "0";
+    const f = el("dd", sort === "filed" ? "active" : "", short(filedDate(c)));
+    const l = el("dd", sort === "last" ? "active" : "", short(lastFiling(c)));
+    dl.append(el("dt", null, "Filed"), f, el("dt", null, "Last filing"), l); b.append(dl);
+    const all = deadlines(c);
+    const open = all.filter(d => !d.done && !d.floor && !d.meeting);
+    const late = open.filter(d => d.left < 0).length, soon = open.filter(d => d.left >= 0 && d.left <= 7).length;
+    const meets = all.filter(d => d.meeting && !d.done && d.left <= 7).length;
+    const flags = el("div", "cc-flags");
+    if (meets) flags.append(el("span", null, meets + " meeting" + (meets > 1 ? "s" : "") + " this week"));
+    if (late) flags.append(el("span", "late", late + " overdue"));
+    if (soon) flags.append(el("span", "soon", soon + " due this week"));
+    if (!late && !soon) flags.append(el("span", "clear", "Nothing due this week"));
+    b.append(flags);
+    b.onclick = () => { if (c.id === state.current) return; state.current = c.id; save(); closeAddForm(); renderAll(); resetAI(); };
+    box.append(b);
+  }
+}
+document.querySelectorAll("[data-s]").forEach(b => b.onclick = () => { state.sort = b.dataset.s; save(); renderCases(); });
+function renderCaption(){
+  const c = cur();
+  $("capCourt").textContent = c.court || "Court not set";
+  const h = $("capTitle"); h.textContent = "";
+  const m = c.caption.split(/\s+v\.?\s+/);
+  if (m.length === 2){ h.append(el("em", null, m[0]), " v. ", el("em", null, m[1])); } else h.textContent = c.caption;
+  $("capNo").textContent = c.number ? "No. " + c.number : "";
+  $("capSide").textContent = "For " + c.side;
+  $("capSample").hidden = !c.sample;
+  $("capJuris").textContent = J[jOf(c)].name;
+  $("countLabel").textContent = J[jOf(c)].count;
+  const ds = deadlines(c).filter(d => !d.done && !d.floor && !d.meeting);
+  const n = { late: ds.filter(d => d.status === "late").length, soon: ds.filter(d => d.status === "soon").length, up: ds.filter(d => d.status === "up").length };
+  const t = $("tally"); t.textContent = "";
+  [["late","Overdue",n.late],["soon","Next 7 days",n.soon],["up","Later",n.up]].forEach(([k,l,v]) => {
+    const d = el("div", k); d.append(el("b", null, String(v)), el("span", "label", l)); t.append(d);
+  });
+}
+function renderEvents(){
+  const c = cur(); const ul = $("events"); ul.textContent = "";
+  const evs = [...c.events].sort((a,b) => a.date.localeCompare(b.date));
+  if (!evs.length){ ul.append(el("li", "empty", "No events yet. Add the date the complaint was filed to start the clock.")); return; }
+  for (const ev of evs){
+    const def = EVENTS[ev.key]; const li = el("li");
+    li.append(el("span", "d mono", nice(parse(ev.date)).replace(/^\w+, /, "")));
+    const body = el("div"); const t = el("div", "t", def?.sched && ev.title ? ev.title : def ? def.label : ev.key);
+    if (def?.sched) t.append(el("span", "tag", def.sched === "deadline" ? "court order" : "meeting"));
+    if (ev.doc) t.append(el("span", "tag", "Doc " + ev.doc));
+    if (ev.mail && def?.mailable) t.append(el("span", "tag", "by mail"));
+    body.append(t); if (ev.note) body.append(el("div", "n", ev.note));
+    const rm = el("button", "btn ghost danger", "Remove"); rm.type = "button";
+    rm.onclick = () => {
+      if (rm.dataset.armed){ c.events = c.events.filter(e => e.id !== ev.id); Object.keys(c.done).forEach(k => k.startsWith(ev.id+":") && delete c.done[k]); save(); renderAll(); }
+      else { rm.dataset.armed = "1"; rm.textContent = "Confirm"; setTimeout(() => { if (rm.isConnected){ delete rm.dataset.armed; rm.textContent = "Remove"; } }, 3000); }
+    };
+    li.append(body, rm); ul.append(li);
+  }
+}
+function renderLedger(){
+  const c = cur(); const box = $("ledger"); box.textContent = "";
+  let ds = deadlines(c); if (filter === "open") ds = ds.filter(d => !d.done);
+  if (!ds.length){ box.append(el("p", "empty", filter === "open" ? "Nothing open. Add a trigger event to compute deadlines." : "No deadlines yet.")); return; }
+  let lastM = "";
+  for (const d of ds){
+    const dt = new Date(d.t); const mk = MONTHS[dt.getUTCMonth()] + " " + dt.getUTCFullYear();
+    if (mk !== lastM){ box.append(el("div", "month", mk)); lastM = mk; }
+    const row = el("div", "row " + d.status + (d.done ? " isdone" : ""));
+    const cb = el("input"); cb.type = "checkbox"; cb.checked = d.done; cb.id = "chk-" + d.id.replace(/[^a-z0-9]/gi, "-");
+    cb.setAttribute("aria-label", "Mark " + d.title + " complete");
+    cb.onchange = () => { if (cb.checked) c.done[d.id] = true; else delete c.done[d.id]; save(); renderLedger(); renderCaption(); };
+    const date = el("div", "date mono"); date.append(el("div", "dd", MON[dt.getUTCMonth()] + " " + dt.getUTCDate()), el("div", "dw", WD[dt.getUTCDay()].slice(0,3) + " " + dt.getUTCFullYear()));
+    const body = el("div"); body.style.minWidth = "0";
+    body.append(el("div", "ttl", d.title), el("div", "cite", d.cite));
+    if (d.meeting || d.ordered){ if (d.src) body.append(el("div", "why", d.src)); }
+    else {
+      const days = EVENTS[Object.keys(EVENTS).find(k => EVENTS[k].label === d.from)]?.rules.find(r => r.t === d.title)?.d ?? 0;
+      body.append(el("div", "why", `${Math.abs(days)} days ${days < 0 ? "before" : "after"} ${d.from.toLowerCase()} on ${nice(parse(d.fromDate))}`));
+    }
+    d.notes.forEach(n => body.append(el("div", "adj", n)));
+    row.append(cb, date, body, el("span", "status " + d.status, statusText(d)));
+    box.append(row);
+  }
+}
+const evKey = $("evKey");
+let evKeyJ = null;
+function fillEventSelect(){
+  const j = jOf(cur()); if (j === evKeyJ) return; evKeyJ = j;
+  evKey.textContent = "";
+  for (const [k, v] of eventsFor(j)){ const o = el("option", null, v.label); o.value = k; evKey.append(o); }
+  syncMail();
+  $("mailText").textContent = `Served by mail (+${J[j].mailDays} days)`;
+}
+function syncMail(){
+  $("mailWrap").hidden = !EVENTS[evKey.value]?.mailable;
+  const sc = EVENTS[evKey.value]?.sched; $("titleWrap").hidden = !sc; $("timeWrap").hidden = sc !== true;
+}
+function renderAll(){ fillEventSelect(); renderCases(); renderCaption(); renderEvents(); renderLedger(); }
+
+/* ---------- forms ---------- */
+evKey.onchange = syncMail;
+$("evDate").value = todayISO();
+$("addForm").onsubmit = (e) => {
+  e.preventDefault(); const date = $("evDate").value; if (!date) return;
+  const ev = { id: uid(), key: evKey.value, date, mail: EVENTS[evKey.value].mailable && $("evMail").checked, note: $("evNote").value.trim() };
+  if (EVENTS[evKey.value].sched){ ev.title = $("evTitle").value.trim(); ev.time = $("evTime").value.trim(); }
+  cur().events.push(ev);
+  save(); renderAll(); closeAddForm();
+};
+// close the add-event form and clear what was typed, so nothing carries over to another case
+function closeAddForm(){ $("addForm").hidden = true; $("evNote").value = ""; $("evMail").checked = false; $("evTitle").value = ""; $("evTime").value = ""; }
+$("addEvBtn").onclick = () => { $("addForm").hidden = false; evKey.focus(); };
+$("evCancel").onclick = closeAddForm;
+$("newCaseBtn").onclick = () => { $("newCaseForm").hidden = false; $("ncCaption").focus(); };
+$("ncCancel").onclick = () => { $("newCaseForm").hidden = true; };
+$("newCaseForm").onsubmit = (e) => {
+  e.preventDefault(); const cap = $("ncCaption").value.trim(); if (!cap) return;
+  const c = { id: uid(), caption: cap, number: $("ncNumber").value.trim(), court: $("ncCourt").value.trim(), side: $("ncSide").value, juris: "ny", events: [], done: {} };
+  state.cases.push(c); state.current = c.id; save();
+  e.target.reset(); e.target.hidden = true; closeAddForm(); renderAll(); resetAI();
+};
+const delBtn = $("delCase");
+delBtn.onclick = () => {
+  if (!delBtn.dataset.armed){ delBtn.dataset.armed = "1"; delBtn.textContent = "Confirm delete"; setTimeout(() => { delete delBtn.dataset.armed; delBtn.textContent = "Delete case"; }, 3000); return; }
+  delete delBtn.dataset.armed; delBtn.textContent = "Delete case";
+  state.cases = state.cases.filter(c => c.id !== state.current);
+  if (!state.cases.length) state.cases.push(sampleCase());
+  state.current = state.cases[0].id; save(); closeAddForm(); renderAll(); resetAI();
+};
+document.querySelectorAll("[data-f]").forEach(b => b.onclick = () => {
+  filter = b.dataset.f; document.querySelectorAll("[data-f]").forEach(x => x.setAttribute("aria-pressed", String(x === b))); renderLedger();
+});
+
+/* ---------- AI ---------- */
+let sample = null;
+const ERR = {
+  not_granted: "Claude access was not allowed for this page. Allow it from the page's Permissions menu to use AI features.",
+  sampling_disabled: "Claude isn't available on this account.",
+  rate_limited: "Too many requests right now. Wait a minute, then try again.",
+  session_expired: "Your session expired. Sign in again, then retry.",
+  refused: "Claude declined that request. Try different text.",
+  invalid_json: "Claude's answer couldn't be read as a list of dates. Try again or paste a shorter excerpt.",
+  prompt_too_large: "That text is too long. Paste just the relevant order or docket entry.",
+  empty_completion: "Claude returned nothing. Try a shorter or clearer excerpt.",
+  bad_key: "OpenRouter rejected the API key. Check it, or create a new one at openrouter.ai, then save it again.",
+  no_credit: "The OpenRouter account behind this key is out of credit. Add credit at openrouter.ai, then try again.",
+  network: "Couldn't reach OpenRouter. Check your internet connection, then try again.",
+  site_key: "The site's AI service isn't set up correctly. Try again later.",
+  site_no_credit: "The site's AI credit has run out for now. The deadline calculator still works.",
+  site_not_configured: "The site's AI service isn't set up yet. The deadline calculator still works.",
+  upstream_unreachable: "The AI service didn't respond. Try again in a moment.",
+};
+
+/* Outside Claude, AI calls go to OpenRouter with the user's own key. The key lives only in this browser's localStorage. */
+const OR_KEY = "docketclock.openrouterKey";
+const OR_MODEL = "anthropic/claude-sonnet-5.5";
+const getKey = () => { try { return localStorage.getItem(OR_KEY) || ""; } catch(e){ return ""; } };
+// On the hosted site, a server relay (netlify/functions/claude.mjs) holds the site's key, so visitors need none
+let relay = false;
+const aiReady = () => !!sample || relay || !!getKey();
+// Prompt → answer. json: parse the JSON object the prompt asks for. onText: called with { text } for the briefing.
+async function callClaude(prompt, { signal, json = false, onText } = {}){
+  if (sample) return json ? sample.json(prompt, { signal, modelTier: "default" }) : sample(prompt, { signal, cache: false, onText });
+  let text, truncated;
+  if (relay){
+    let r;
+    try { r = await fetch("/api/claude", { method: "POST", signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt }) }); }
+    catch (e) { throw { code: e?.name === "AbortError" ? "cancelled" : "network" }; }
+    const data = await r.json().catch(() => null);
+    if (!r.ok || !data?.text) throw { code: data?.error || "api_error" };
+    ({ text, truncated } = data);
+  } else {
+    const key = getKey(); if (!key) throw { code: "not_declared" };
+    let r;
+    try {
+      r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST", signal,
+        headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json", "X-Title": "Docket Clock" },
+        body: JSON.stringify({ model: OR_MODEL, max_tokens: 2000, messages: [{ role: "user", content: prompt }] }),
+      });
+    } catch (e) { throw { code: e?.name === "AbortError" ? "cancelled" : "network" }; }
+    if (!r.ok) throw { code: r.status === 401 ? "bad_key" : r.status === 402 ? "no_credit" : r.status === 429 ? "rate_limited" : r.status === 413 ? "prompt_too_large" : "api_error" };
+    const data = await r.json().catch(() => null);
+    const choice = data?.choices?.[0];
+    text = typeof choice?.message?.content === "string" ? choice.message.content : "";
+    truncated = choice?.finish_reason === "length";
+    if (!text) throw { code: "empty_completion" };
+  }
+  if (!json){ onText?.({ text }); return { text, truncated }; }
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const body = fenced ? fenced[1] : text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+  try { return JSON.parse(body); } catch (e) { throw { code: "invalid_json" }; }
+}
+// Show the key box when the page runs outside Claude, and turn the AI buttons on or off to match
+function syncAI(){
+  const on = aiReady();
+  ["exUnavail","brUnavail"].forEach(id => { $(id).hidden = on; $(id).textContent = on ? "" : "Add an OpenRouter API key under Read a filing to use the AI features. The deadline calculator works without one."; });
+  ["exBtn","brBtn"].forEach(id => $(id).disabled = !on);
+  $("keyBox").hidden = !!sample || relay;
+  const has = !!getKey();
+  $("keyForget").hidden = !has;
+  $("keyIn").placeholder = has ? "Key saved. Paste a new one to replace it." : "sk-or-…";
+}
+$("keySave").onclick = () => {
+  const k = $("keyIn").value.trim(); $("keyIn").value = "";
+  if (!/^sk-or-/.test(k)){ $("keyState").textContent = "That doesn't look like an OpenRouter key. They start with sk-or-."; return; }
+  try { localStorage.setItem(OR_KEY, k); } catch(e){ $("keyState").textContent = "This browser won't store the key (private window or blocked storage)."; return; }
+  $("keyState").textContent = "Key saved in this browser. AI calls are billed to the key owner's OpenRouter account.";
+  syncAI();
+};
+$("keyForget").onclick = () => {
+  try { localStorage.removeItem(OR_KEY); } catch(e){}
+  $("keyState").textContent = "Key removed from this browser.";
+  syncAI();
+};
+const errCopy = (e) => ERR[e?.code] || "Something went wrong reaching Claude. Try again.";
+const hardOff = (e) => ["not_granted","sampling_disabled","not_declared","capability_disabled","capability_removed"].includes(e?.code);
+
+function setUnavailable(msg){
+  ["exUnavail","brUnavail"].forEach(id => { $(id).hidden = false; $(id).textContent = msg; });
+  ["exBtn","brBtn"].forEach(id => $(id).disabled = true);
+}
+function resetAI(){ $("exOut").textContent = ""; $("brOut").hidden = true; $("brOut").textContent = ""; }
+
+$("exSample").onclick = () => {
+  $("exText").value = `SUPREME COURT OF THE STATE OF NEW YORK
+COUNTY OF NEW YORK: COMMERCIAL DIVISION, PART 48
+(Simulated sample order for a class demo. Fictional case.)
+
+Okafor v. Halvorsen Mobile Systems, Inc., Index No. 651877/2026
+
+DECISION AND ORDER ON MOTION (Mot. Seq. 004)
+
+Plaintiff's motion for class certification pursuant to CPLR 901 and 902 is GRANTED IN PART. The Court certifies a class of New York purchasers.
+
+NOTICE OF ENTRY: This order was entered on ${nice(parse(shift(-9)))} and served with notice of entry by first-class mail on ${nice(parse(shift(-8)))}.
+
+On ${nice(parse(shift(-3)))}, Defendant served its Second Set of Document Demands by first-class mail.
+
+Counsel shall appear for a compliance conference on ${nice(parse(shift(6)))} at 9:30 a.m. The note of issue shall be filed on or before ${nice(parse(shift(97)))}.`;
+};
+
+/* PDF → text (runs in the page; pdf.js worker loaded as a script, so no Worker needed) */
+async function pdfText(file){
+  const lib = window.pdfjsLib; if (!lib) throw new Error("PDF reader didn't load.");
+  try { lib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; } catch(e){}
+  const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise;
+  const pages = [];
+  for (let i = 1; i <= Math.min(doc.numPages, 30); i++){
+    const tc = await (await doc.getPage(i)).getTextContent();
+    pages.push(tc.items.map(it => it.str + (it.hasEOL ? "\n" : " ")).join(""));
+  }
+  return pages.join("\n\n").replace(/[ \t]+\n/g, "\n").trim();
+}
+async function takePdf(file){
+  const drop = $("drop"); const out = $("exOut");
+  if (!file || !/pdf$/i.test(file.type || file.name)){ out.textContent = ""; out.append(el("p", "unavail", "That file isn't a PDF. Choose a PDF filing.")); return; }
+  drop.textContent = "Reading " + file.name + "…";
+  try {
+    const text = await pdfText(file);
+    $("exText").value = text || "";
+    out.textContent = "";
+    if (!text){ out.append(el("p", "unavail", "That PDF has no readable text. It may be a scanned image.")); }
+    else if (aiReady()){ $("exBtn").click(); }
+    drop.textContent = "Loaded " + file.name + ". Drop another PDF to replace it.";
+  } catch (e) {
+    drop.textContent = "Drop a PDF here or choose a file";
+    out.textContent = ""; out.append(el("p", "unavail", "Couldn't read that PDF. Try another file or paste the text."));
+  }
+}
+$("pdfIn").onchange = (e) => takePdf(e.target.files[0]);
+["dragenter","dragover"].forEach(t => $("drop").addEventListener(t, (e) => { e.preventDefault(); $("drop").classList.add("over"); }));
+["dragleave","drop"].forEach(t => $("drop").addEventListener(t, (e) => { e.preventDefault(); $("drop").classList.remove("over"); }));
+$("drop").addEventListener("drop", (e) => takePdf(e.dataTransfer.files[0]));
+
+let exCtl = null;
+$("exStop").onclick = () => exCtl?.abort();
+$("exBtn").onclick = async () => {
+  const text = $("exText").value.trim();
+  const out = $("exOut"); out.textContent = "";
+  if (!text){ out.append(el("p", "hint", "Paste some text from a filing first.")); return; }
+  if (!aiReady()) return;
+  const jx = jOf(cur());
+  const allowed = eventsFor(jx).filter(([k]) => k !== "filing");
+  const keys = allowed.map(([k,v]) => `- ${k}: ${v.label}${v.mailable ? " (can be served by mail)" : ""}`).join("\n");
+  const prompt = `You extract litigation trigger events from ${jx === "ny" ? "New York State Supreme Court" : "U.S. federal court"} filings for a deadline calculator.
+Today is ${todayISO()}.
+
+Allowed event keys:
+${keys}
+
+Read the filing below. Return ONLY a JSON object of this shape:
+{"events":[{"key":"<one allowed key>","date":"YYYY-MM-DD","mail":false,"title":"<only for meeting or court_deadline: short name>","time":"<only for meeting: time and place>","evidence":"<the phrase that supports it, under 15 words>","confidence":"high"|"medium"|"low"}]}
+Rules: only include events whose date is stated or clearly implied. "mail" is true only if the text says service was by mail. A signed order's "Dated" line is the entry date of that order. Use "court_deadline" for a date the court orders a party to meet (for example a note of issue or discovery cutoff), and "meeting" for a conference, hearing or deposition. When an order is served with notice of entry, use the service date for the appeal clock; if the order denies a CPLR 3211 motion in whole or part, use ny_motion_order. Use an empty array if nothing matches.
+
+FILING:
+"""
+${text.slice(0, 15000)}
+"""`;
+  exCtl = new AbortController();
+  $("exBtn").disabled = true; $("exStop").hidden = false;
+  out.append(el("p", "ai-out wait", "Reading the filing…"));
+  try {
+    const res = await callClaude(prompt, { signal: exCtl.signal, json: true });
+    const found = (Array.isArray(res?.events) ? res.events : []).filter(x => x && allowed.some(([k]) => k === x.key) && /^\d{4}-\d{2}-\d{2}$/.test(String(x.date)));
+    out.textContent = "";
+    if (!found.length){ out.append(el("p", "hint", "No trigger events found in that text.")); return; }
+    const ul = el("ul", "found");
+    found.forEach((f, i) => {
+      const li = el("li"); const cb = el("input"); cb.type = "checkbox"; cb.checked = f.confidence !== "low"; cb.id = "found-" + i;
+      const lab = el("label"); lab.htmlFor = cb.id;
+      const top = el("div"); top.append(el("strong", null, EVENTS[f.key].sched && f.title ? String(f.title).slice(0, 100) : EVENTS[f.key].label), " · ", el("span", "mono", nice(parse(f.date))));
+      if (f.mail && EVENTS[f.key].mailable) top.append(el("span", "tag", "by mail"));
+      lab.append(top);
+      if (f.evidence) lab.append(el("div", "ev", "“" + String(f.evidence).slice(0, 140) + "”"));
+      lab.append(el("div", "conf " + (f.confidence === "low" ? "low" : ""), String(f.confidence || "medium") + " confidence"));
+      li.append(cb, lab); ul.append(li); f._cb = cb;
+    });
+    const add = el("button", "btn primary", "Add selected events"); add.type = "button";
+    add.onclick = () => {
+      const c = cur(); let n = 0;
+      found.forEach(f => { if (f._cb.checked){ c.events.push({ id: uid(), key: f.key, date: f.date, mail: !!(f.mail && EVENTS[f.key].mailable), note: "From pasted filing", ...(EVENTS[f.key].sched ? { title: String(f.title || EVENTS[f.key].label).slice(0, 120), time: String(f.time || "").slice(0, 120) } : {}) }); n++; } });
+      save(); renderAll(); out.textContent = ""; out.append(el("p", "hint", n ? `Added ${n} event${n > 1 ? "s" : ""}. The deadlines are updated.` : "Nothing selected."));
+    };
+    out.append(ul, add);
+  } catch (e) {
+    out.textContent = "";
+    if (e?.code === "cancelled") return;
+    if (hardOff(e)) setUnavailable(errCopy(e));
+    else out.append(el("p", "unavail", errCopy(e)));
+  } finally { $("exStop").hidden = true; if (!$("exUnavail").hidden) return; $("exBtn").disabled = false; }
+};
+
+function renderMd(target, md){
+  target.textContent = "";
+  const inline = (s, parent) => { s.split(/(\*\*[^*]+\*\*)/g).forEach(p => { if (/^\*\*[^*]+\*\*$/.test(p)) parent.append(el("strong", null, p.slice(2,-2))); else if (p) parent.append(p); }); };
+  let list = null;
+  for (const line of md.split("\n")){
+    const l = line.trim();
+    if (!l){ list = null; continue; }
+    if (/^#{1,4}\s/.test(l)){ list = null; target.append(el("h4", null, l.replace(/^#+\s*/, ""))); continue; }
+    if (/^[-*•]\s/.test(l)){ if (!list){ list = el("ul"); target.append(list); } const li = el("li"); inline(l.replace(/^[-*•]\s/, ""), li); list.append(li); continue; }
+    list = null; const p = el("p"); inline(l, p); target.append(p);
+  }
+}
+let brCtl = null;
+$("brStop").onclick = () => brCtl?.abort();
+$("brBtn").onclick = async () => {
+  if (!aiReady()) return;
+  const c = cur(); const ds = deadlines(c);
+  const lines = ds.map(d => `- ${iso(d.t)} | ${d.title} | ${d.cite} | ${d.done ? "completed" : d.floor ? "earliest permitted date" : d.left < 0 ? (-d.left) + " days overdue" : d.left + " days left"}${d.mail ? " | includes mail-service days" : ""}`).join("\n") || "(no deadlines yet)";
+  const ny = jOf(c) === "ny";
+  const docket = [...c.events].sort((a,b) => a.date.localeCompare(b.date)).map(e => `- ${e.date}${e.doc ? " | Doc " + e.doc : ""} | ${EVENTS[e.key]?.sched ? "Meeting: " + (e.title || "") + (e.time ? " (" + e.time + ")" : "") : EVENTS[e.key]?.label || e.key}${e.note ? " | " + e.note : ""}`).join("\n");
+  const prompt = `You are helping a law student run a ${ny ? "New York State Supreme Court civil docket governed by the CPLR (class actions under CPLR Article 9)" : "federal civil litigation docket governed by the FRCP"} for a class action course. Be accurate and practical.
+Today: ${todayISO()}.
+Case: ${c.caption}${c.number ? ", " + (ny ? "Index No. " : "No. ") + c.number : ""}${c.court ? ", " + c.court : ""}. We represent: ${c.side}.
+Docket events:
+${docket || "(none)"}
+Computed deadlines (date | task | rule | status):
+${lines}
+
+Write a short briefing in Markdown, under 230 words, with exactly these three headings:
+## This week
+## Watch out
+## Next filings
+Under each, 2-4 bullets. In "Watch out", flag overdue items and deadlines courts generally cannot extend or treat strictly (${ny ? "for example the CPLR 5513 time to take an appeal, which CPLR 2004 does not allow courts to extend" : "for example Rule 23(f), Rule 50(b) and 59 under Rule 6(b)(2), the appellate notice deadline"}), and anything our side should do differently because of which party we represent. Cite rules briefly. Do not invent dates not listed. End with one line in italics reminding the reader to check local rules and the scheduling order.`;
+  brCtl = new AbortController();
+  const out = $("brOut"); out.hidden = false; out.textContent = ""; out.append(el("p", "wait", "Thinking through the docket…"));
+  $("brBtn").disabled = true; $("brStop").hidden = false;
+  try {
+    const { truncated } = await callClaude(prompt, { signal: brCtl.signal, onText: ({ text }) => renderMd(out, text) });
+    if (truncated) out.append(el("p", "hint", "The briefing was cut short."));
+  } catch (e) {
+    if (e?.text) renderMd(out, e.text); else out.textContent = "";
+    if (e?.code === "cancelled"){ if (!e?.text) out.hidden = true; }
+    else if (hardOff(e)){ out.hidden = true; setUnavailable(errCopy(e)); }
+    else out.append(el("p", "unavail", errCopy(e)));
+  } finally { $("brStop").hidden = true; if ($("brUnavail").hidden) $("brBtn").disabled = false; }
+};
+
+/* ---------- linked email (Gmail) ---------- */
+let mcp = null;
+const GMAIL = "Gmail";
+const MCP_ERR = {
+  server_not_connected: "Gmail isn't connected. Add it in claude.ai Settings → Connectors, then try again.",
+  needs_reauth: "Your Gmail connection has expired. Reconnect Gmail in claude.ai Settings → Connectors, then try again.",
+  selection_required: "You have more than one Gmail connection. Choose one when Claude asks, then try again.",
+  not_in_manifest: "Gmail access wasn't allowed for this page. Allow it from the page's Permissions menu, then try again.",
+  approval_required: "Gmail access needs your approval. Click Check my email again and choose Allow.",
+  blocked_by_policy: "Your organization blocks this page from using Gmail.",
+  server_unavailable: "Gmail didn't respond. Try again in a moment.",
+  not_granted: "This page can't use connectors in this view.",
+  capability_disabled: "This page can't use connectors in this view.",
+};
+const gmStatus = (t) => { $("gmStatus").textContent = t; };
+const normNo = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+function matchCase(n){
+  const num = normNo(n.index_number);
+  if (num) { const hit = state.cases.find(c => normNo(c.number) === num); if (hit) return hit; }
+  const first = String(n.caption || "").split(/\s+v\.?\s+/i)[0].replace(/,.*$/, "").trim().toLowerCase();
+  return first ? state.cases.find(c => c.caption.toLowerCase().startsWith(first)) || null : null;
+}
+const onDocket = (c, n) => !!c && c.events.some(e => e.doc && String(e.doc) === String(n.doc_number));
+
+const onCal = (c, m) => !!c && c.events.some(e => e.key === "meeting" && e.date === m.date && String(e.title || "").toLowerCase() === String(m.title || "").toLowerCase());
+async function readThreads(query, limit){
+  const found = await mcp.callTool(GMAIL, "search_threads", { query, pageSize: limit }, { cache: false });
+  const threads = (found.payload && Array.isArray(found.payload.threads)) ? found.payload.threads.slice(0, limit) : [];
+  const msgs = [];
+  for (const th of threads){
+    const r = await mcp.callTool(GMAIL, "get_thread", { threadId: String(th.id), messageFormat: "PLAIN_TEXT" }, { cache: false });
+    for (const m of (r.payload?.messages || [])) msgs.push({
+      id: String(m.id), subject: m.subject || "", date: m.date || "", from: m.sender || "", url: m.viewUrl || th.viewUrl || "",
+      files: (m.attachments || []).map(a => a.filename).filter(Boolean),
+      body: String(m.plaintextBody || m.snippet || "").slice(0, 2500) });
+  }
+  return msgs;
+}
+function caseTerms(){
+  const t = new Set();
+  for (const c of state.cases){
+    if (c.number) t.add(`"${c.number}"`);
+    const first = c.caption.replace(/^in re:?\s+/i, "").split(/\s+v\.?\s+|\s+/i)[0].replace(/[^A-Za-z'-]/g, "");
+    if (first.length > 3) t.add(first);
+  }
+  return [...t].slice(0, 12);
+}
+function linkFor(msgById, id){
+  const m = msgById.get(String(id)); if (!m || !/^https:\/\/mail\.google\.com\//.test(m.url)) return null;
+  const a = el("a", null, "Open email" + (m.files.length ? " · " + m.files.length + " PDF" : "")); a.href = m.url; a.target = "_blank"; a.rel = "noopener";
+  return a;
+}
+
+$("gmBtn").onclick = async () => {
+  const out = $("gmOut"); out.textContent = "";
+  if (!mcp){ out.append(el("p", "unavail", "Linked email works when this page is opened in Claude with Gmail connected.")); return; }
+  if (!sample){ out.append(el("p", "unavail", "Reading email needs Claude, which isn't available in this view.")); return; }
+  $("gmBtn").disabled = true;
+  try {
+    gmStatus("Searching Gmail for court notices…");
+    const notices = await readThreads("subject:NYSCEF newer_than:365d", 15);
+    const terms = caseTerms();
+    let corr = [];
+    if (terms.length){
+      gmStatus("Searching Gmail for counsel correspondence…");
+      corr = await readThreads(`(${terms.join(" OR ")}) -subject:NYSCEF newer_than:120d`, 12);
+    }
+    const msgs = [...notices, ...corr.filter(m => !notices.some(n => n.id === m.id))];
+    const msgById = new Map(msgs.map(m => [m.id, m]));
+    if (!msgs.length){ gmStatus(""); out.append(el("p", "hint", "No court notices or case correspondence found in your Gmail.")); return; }
+    gmStatus(`Claude is reading ${msgs.length} email${msgs.length > 1 ? "s" : ""}…`);
+    const keyList = Object.entries(EVENTS).filter(([, v]) => !v.sched && (v.j === "ny" || v.j === "any")).map(([k, v]) => `- ${k}: ${v.label} [${v.j === "ny" ? "New York CPLR" : v.j === "any" ? "any court" : "federal"}]`).join("\n");
+    const caseList = state.cases.map(c => `- ${c.caption}${c.number ? " (No. " + c.number + ")" : ""}`).join("\n");
+    const prompt = `You read a litigator's email for a docket tracker. Today is ${todayISO()}. Some emails are labeled as simulated demo messages for a class project; treat those exactly like real ones.
+
+Tracked cases:
+${caseList}
+
+Do two things.
+1. Court e-filing notices (NYSCEF or similar): one record per filing. Map it to the event key that starts a deadline clock, using the date of the underlying event (for an affidavit of service, the date service was made; for an order served with notice of entry, the date of service). If a filing starts no clock (for example a notice of motion), use "filing" with the filed date.
+Event keys:
+${keyList}
+
+2. Correspondence with opposing counsel, co-counsel or chambers: find every meeting, call, conference, deposition or hearing that is scheduled or confirmed, with its date. Skip proposals that were declined or replaced; use the latest agreed time. Do not treat a court filing notice as a meeting.
+
+Return ONLY JSON:
+{"notices":[{"message_id":"","index_number":"","caption":"","court":"","doc_number":"","doc_title":"","event_key":"","event_date":"YYYY-MM-DD","mail":false,"summary":"<under 20 words>"}],
+ "meetings":[{"message_id":"","case":"<caption or number of the tracked case it concerns, or empty>","title":"<short name, e.g. Meet-and-confer on document demands>","date":"YYYY-MM-DD","time":"<time and place or dial-in, short>","with":"<other side, e.g. Brannock Pell LLP>","status":"confirmed"|"proposed"}]}
+
+EMAILS:
+${msgs.map(m => `--- message_id: ${m.id} | date: ${m.date} | from: ${m.from} | subject: ${m.subject}${m.files.length ? " | attachments: " + m.files.join(", ") : ""}\n${m.body}`).join("\n\n")}`;
+    const res = await sample.json(prompt, { modelTier: "default" });
+    const ns = (Array.isArray(res?.notices) ? res.notices : []).filter(n => n && EVENTS[n.event_key] && !EVENTS[n.event_key].sched && /^\d{4}-\d{2}-\d{2}$/.test(String(n.event_date)));
+    ns.sort((a, b) => String(a.event_date).localeCompare(String(b.event_date)));
+    const ms = (Array.isArray(res?.meetings) ? res.meetings : []).filter(m => m && m.title && /^\d{4}-\d{2}-\d{2}$/.test(String(m.date)));
+    ms.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    gmStatus(`Read ${msgs.length} email${msgs.length > 1 ? "s" : ""}.`);
+    if (!ns.length && !ms.length){ out.append(el("p", "hint", "Claude didn't find filings or meetings in those emails.")); return; }
+    let fresh = 0;
+    const meetCase = (m) => matchCase({ index_number: m.case, caption: m.case });
+
+    if (ns.length){
+      out.append(el("div", "gm-head", "Court filings"));
+      const ul = el("ul", "found");
+      ns.forEach((n, i) => {
+        const c = matchCase(n); const dup = onDocket(c, n); if (!dup) fresh++;
+        const li = el("li"); const cb = el("input"); cb.type = "checkbox"; cb.id = "gm-n" + i; cb.checked = !dup; cb.disabled = dup;
+        const lab = el("label"); lab.htmlFor = cb.id;
+        lab.append(el("strong", null, (n.doc_number ? "Doc " + n.doc_number + " · " : "") + (n.doc_title || EVENTS[n.event_key].label)));
+        lab.append(el("div", "ev", `${EVENTS[n.event_key].label} · ${nice(parse(n.event_date))}`));
+        if (n.summary) lab.append(el("div", "n", String(n.summary).slice(0, 160)));
+        lab.append(el("div", "conf", dup ? "Already on docket · " + c.caption : c ? "→ " + c.caption : "→ New case: " + (n.caption || "Unnamed case")));
+        const a = linkFor(msgById, n.message_id); if (a) lab.append(a);
+        li.append(cb, lab); ul.append(li); n._cb = cb;
+      });
+      out.append(ul);
+    }
+    if (ms.length){
+      out.append(el("div", "gm-head", "Meetings from correspondence"));
+      const ul = el("ul", "found");
+      ms.forEach((m, i) => {
+        const c = meetCase(m) || cur(); const dup = onCal(c, m); if (!dup) fresh++;
+        const li = el("li"); const cb = el("input"); cb.type = "checkbox"; cb.id = "gm-m" + i; cb.checked = !dup && m.status !== "proposed"; cb.disabled = dup;
+        const lab = el("label"); lab.htmlFor = cb.id;
+        lab.append(el("strong", null, String(m.title).slice(0, 120)));
+        lab.append(el("div", "ev", [nice(parse(m.date)), m.time].filter(Boolean).join(" · ")));
+        if (m.with) lab.append(el("div", "n", "With " + String(m.with).slice(0, 100)));
+        lab.append(el("div", "conf" + (m.status === "proposed" ? " low" : ""), (dup ? "Already scheduled · " : m.status === "proposed" ? "Proposed, not confirmed · " : "→ ") + c.caption));
+        const a = linkFor(msgById, m.message_id); if (a) lab.append(a);
+        li.append(cb, lab); ul.append(li); m._cb = cb; m._case = c;
+      });
+      out.append(ul);
+    }
+    const pdfs = msgs.filter(m => m.files.some(f => /\.pdf$/i.test(f))).length;
+    if (pdfs) out.append(el("p", "hint", `${pdfs} email${pdfs > 1 ? "s have" : " has"} a PDF attached. Gmail doesn't let this page open attachments, so use Open email to download one, then drop it into Read a filing.`));
+    if (!fresh){ out.append(el("p", "hint", "Everything in your email is already on the docket.")); return; }
+    const add = el("button", "btn primary", "Add to docket"); add.type = "button";
+    add.onclick = () => {
+      let nf = 0, nm = 0, lastCase = null;
+      for (const n of ns){
+        if (!n._cb.checked || n._cb.disabled) continue;
+        let c = matchCase(n);
+        if (!c){
+          const ny = EVENTS[n.event_key].j === "ny" || /new york|supreme court/i.test(n.court || "");
+          c = { id: uid(), caption: String(n.caption || "Unnamed case").slice(0, 160), number: String(n.index_number || ""), court: String(n.court || ""), side: "Plaintiff / class", juris: "ny", events: [], done: {} };
+          state.cases.push(c);
+        }
+        if (onDocket(c, n)) continue;
+        c.events.push({ id: uid(), key: n.event_key, date: n.event_date, doc: String(n.doc_number || ""), mail: !!(n.mail && EVENTS[n.event_key].mailable), note: String(n.doc_title || "").slice(0, 120) + " (from email)" });
+        nf++; lastCase = c;
+      }
+      for (const m of ms){
+        if (!m._cb.checked || m._cb.disabled) continue;
+        const c = state.cases.find(x => x.id === m._case.id) || cur();
+        if (onCal(c, m)) continue;
+        c.events.push({ id: uid(), key: "meeting", date: m.date, title: String(m.title).slice(0, 120), time: String(m.time || "").slice(0, 120), with: String(m.with || "").slice(0, 100), note: "From email" + (m.with ? " with " + String(m.with).slice(0, 80) : "") });
+        nm++; lastCase = lastCase || c;
+      }
+      if (lastCase) state.current = lastCase.id;
+      save(); renderAll(); out.textContent = "";
+      const parts = [nf && `${nf} filing${nf > 1 ? "s" : ""}`, nm && `${nm} meeting${nm > 1 ? "s" : ""}`].filter(Boolean);
+      out.append(el("p", "hint", parts.length ? `Added ${parts.join(" and ")} to the docket.` : "Nothing new to add."));
+    };
+    out.append(add);
+  } catch (e) {
+    gmStatus("");
+    if (e && MCP_ERR[e.code]) out.append(el("p", "unavail", MCP_ERR[e.code]));
+    else if (e?.code === "tool_error") out.append(el("p", "unavail", "Gmail reported an error: " + (e.message || "unknown")));
+    else if (e && ERR[e.code]) out.append(el("p", "unavail", errCopy(e)));
+    else out.append(el("p", "unavail", "Couldn't check your email. Try again."));
+  } finally { $("gmBtn").disabled = false; }
+};
+
+/* ---------- boot ---------- */
+$("today").textContent = "Today · " + nice(TODAY);
+renderAll();
+(async () => {
+  try { sample = window.claude ? await window.claude.use("sample") : null; } catch(e){ sample = null; }
+  // outside Claude, ask the hosted site whether its relay is set up (a plain file or other host just gets no answer)
+  if (!sample && location.protocol.startsWith("http")){
+    try { const r = await fetch("/api/claude", { cache: "no-store" }); relay = r.ok && (await r.json())?.ok === true; } catch(e){ relay = false; }
+  }
+  syncAI();
+})();
+(async () => {
+  try { mcp = window.claude ? await window.claude.use("mcp") : null; } catch(e){ mcp = null; }
+  // the Gmail scan needs Claude's Gmail connector, so outside Claude the panel is hidden
+  if (!mcp) $("gmH").closest("section").hidden = true;
+})();
+})();
+</script>
